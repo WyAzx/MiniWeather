@@ -1,4 +1,4 @@
-package cn.edu.pku.wangyun.miniweather.adapter;
+package cn.edu.pku.wangyun.adapter;
 
 import android.content.Context;
 import android.support.annotation.NonNull;
