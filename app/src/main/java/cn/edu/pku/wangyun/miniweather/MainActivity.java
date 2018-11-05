@@ -10,6 +10,7 @@ import android.support.annotation.Nullable;
 import android.util.Log;
 import android.view.View;
 import android.widget.ImageView;
+import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -31,6 +32,7 @@ import cn.edu.pku.wangyun.util.NetUtil;
 public class MainActivity extends Activity implements View.OnClickListener {
 
     private ImageView mUpdateBtn;
+    private ProgressBar mUpdateProgress;
 
     private ImageView mCitySelect;
 
@@ -48,6 +50,8 @@ public class MainActivity extends Activity implements View.OnClickListener {
             switch (msg.what) {
                 case UPDATE_TODAY_WEATHER:
                     updateTodayWeather((TodayWeather) msg.obj);
+                    mUpdateBtn.setVisibility(View.VISIBLE);
+                    mUpdateProgress.setVisibility(View.GONE);
                     break;
                 default:
                     break;
@@ -69,6 +73,7 @@ public class MainActivity extends Activity implements View.OnClickListener {
         climateTv = findViewById(R.id.climate);
         windTv = findViewById(R.id.wind);
         weatherImg = findViewById(R.id.weather_img);
+        mUpdateProgress = findViewById(R.id.title_update_progress);
 
         city_name_Tv.setText("N/A");
         cityTv.setText("N/A");
@@ -99,6 +104,8 @@ public class MainActivity extends Activity implements View.OnClickListener {
     private void queryWeatherCode(String cityCode) {
         final String address = "http://wthrcdn.etouch.cn/WeatherApi?citykey=" + cityCode;
         Log.d(TAG, address);
+        mUpdateBtn.setVisibility(View.GONE);
+        mUpdateProgress.setVisibility(View.VISIBLE);
         new Thread(new Runnable() {
             @Override
             public void run() {
