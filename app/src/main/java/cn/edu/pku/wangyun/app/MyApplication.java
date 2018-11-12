@@ -13,6 +13,7 @@ import java.util.List;
 
 import cn.edu.pku.wangyun.bean.City;
 import cn.edu.pku.wangyun.db.CityDB;
+import cn.edu.pku.wangyun.miniweather.R;
 
 public class MyApplication extends Application {
     private static final String TAG = "MyAPP";
@@ -38,6 +39,7 @@ public class MyApplication extends Application {
         return mApplication;
     }
 
+    // 打开数据库
     private CityDB openCityDB() {
         String path = "/data"
                 + Environment.getDataDirectory().getAbsolutePath()
@@ -88,6 +90,7 @@ public class MyApplication extends Application {
         }).start();
     }
 
+    // 初始化city list
     private boolean prepareCityList() {
         mCityList = mCityDB.getAllCity();
         int i = 0;
@@ -103,5 +106,13 @@ public class MyApplication extends Application {
 
     public List<City> getmCityList() {
         return mCityList;
+    }
+
+    public City getCity(String cityName) {
+        return mCityDB.getCity(cityName);
+    }
+
+    public int getWeatherIcon(String weather2) {
+        return R.drawable.biz_plugin_weather_qing;
     }
 }

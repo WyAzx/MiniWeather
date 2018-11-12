@@ -269,6 +269,20 @@
 
         </RelativeLayout>
         <!-- 七日天气信息 -->
+        <android.support.v4.view.ViewPager
+            android:id="@+id/viewpager"
+            android:layout_width="fill_parent"
+            android:layout_height="165dp"
+            android:layout_marginTop="5dip"
+            android:overScrollMode="never"
+            android:paddingLeft="10dp"
+            android:paddingRight="10dp" />
+
+        <cn.edu.pku.wangyun.indicator.CirclePageIndicator
+            android:id="@+id/indicator"
+            android:layout_width="fill_parent"
+            android:layout_height="wrap_content"
+            android:padding="5.0dip" />
         <!-- 广告等信息 -->
     </LinearLayout>
 </RelativeLayout>

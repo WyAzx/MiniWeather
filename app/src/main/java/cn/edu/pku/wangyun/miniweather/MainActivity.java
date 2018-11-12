@@ -1,18 +1,31 @@
 package cn.edu.pku.wangyun.miniweather;
 
 import android.app.Activity;
+import android.app.Dialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.location.LocationManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
 import android.support.annotation.Nullable;
+import android.support.v4.app.Fragment;
+import android.support.v4.app.FragmentActivity;
+import android.support.v4.view.ViewPager;
+import android.text.TextUtils;
 import android.util.Log;
 import android.view.View;
+import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
+
+import com.baidu.location.BDAbstractLocationListener;
+import com.baidu.location.BDLocation;
+import com.baidu.location.BDLocationListener;
+import com.baidu.location.LocationClient;
+import com.baidu.location.LocationClientOption;
 
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
@@ -25,29 +38,59 @@ import java.io.InputStreamReader;
 import java.io.StringReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.ArrayList;
+import java.util.List;
 
+import cn.edu.pku.wangyun.adapter.WeatherPagerAdapter;
+import cn.edu.pku.wangyun.app.MyApplication;
+import cn.edu.pku.wangyun.bean.City;
 import cn.edu.pku.wangyun.bean.TodayWeather;
+import cn.edu.pku.wangyun.fragments.FirstWeatherFragment;
+import cn.edu.pku.wangyun.fragments.SecondWeatherFragment;
+import cn.edu.pku.wangyun.indicator.CirclePageIndicator;
 import cn.edu.pku.wangyun.util.NetUtil;
 
-public class MainActivity extends Activity implements View.OnClickListener {
+public class MainActivity extends FragmentActivity implements View.OnClickListener {
 
     private ImageView mUpdateBtn;
+    private ImageView mLocationBtn;
     private ProgressBar mUpdateProgress;
 
     private ImageView mCitySelect;
 
+    private City mCurCity;
+
     private TextView cityTv, timeTv, humidityTv, weekTv, pmDataTv, pmQualityTv,
             temperatureTv, climateTv, windTv, city_name_Tv;
     private ImageView weatherImg, pmImg;
+    private ViewPager mViewPager;
+    private WeatherPagerAdapter mWeatherPagerAdapter;
+
+    private List<Fragment> fragments;
+
+    public LocationClient mLocationClient = null;
 
     private final static String TAG = "myWeather";
 
+    private static final int LOACTION_OK = 0;
     private static final int UPDATE_TODAY_WEATHER = 1;
 
     private Handler mHandler = new Handler(new Handler.Callback() {
         @Override
         public boolean handleMessage(Message msg) {
             switch (msg.what) {
+                case LOACTION_OK:
+                    String cityName = (String) msg.obj;
+                    MyApplication mApp = (MyApplication) getApplication();
+                    mCurCity = mApp.getCity(cityName);
+                    if(mCurCity != null) {
+                        cityTv.setText(mCurCity.getCity());
+                        queryWeatherCode(mCurCity.getNumber());
+                        Log.d(TAG, "handleMessage: location " + cityName);
+                    }else{
+                        Log.d(TAG, "handleMessage: err"+cityName);
+                    }
+                    break;
                 case UPDATE_TODAY_WEATHER:
                     updateTodayWeather((TodayWeather) msg.obj);
                     mUpdateBtn.setVisibility(View.VISIBLE);
@@ -60,6 +103,39 @@ public class MainActivity extends Activity implements View.OnClickListener {
         }
     });
 
+    private BDLocationListener mLocationListener = new BDLocationListener() {
+        @Override
+        public void onReceiveLocation(BDLocation location) {
+            Log.d("location", "onReceiveLocation: ");
+            mUpdateBtn.setVisibility(View.VISIBLE);
+            mUpdateProgress.setVisibility(View.GONE);
+            //定位失败反馈
+//            if (location == null || TextUtils.isEmpty(location.getCity())) {
+//                // T.showShort(getApplicationContext(), "location = null");
+//                final Dialog dialog = IphoneDialog.getTwoBtnDialog(
+//                        MainActivity.this, "定位失败", "是否手动选择城市?");
+//                ((Button) dialog.findViewById(R.id.ok))
+//                        .setOnClickListener(new View.OnClickListener() {
+//
+//                            @Override
+//                            public void onClick(View v) {
+//                                startActivityForResult();
+//                                dialog.dismiss();
+//                            }
+//                        });
+//                dialog.show();
+//                return;
+//            }
+            String cityName = location.getCity();
+            mLocationClient.stop();
+            Message msg = mHandler.obtainMessage();
+            msg.what = LOACTION_OK;
+            msg.obj = cityName;
+            mHandler.sendMessage(msg);// 更新天气
+        }
+    };
+
+    // 初始化控件
     void initView() {
         city_name_Tv = findViewById(R.id.title_city_name);
         cityTv = findViewById(R.id.city);
@@ -74,6 +150,25 @@ public class MainActivity extends Activity implements View.OnClickListener {
         windTv = findViewById(R.id.wind);
         weatherImg = findViewById(R.id.weather_img);
         mUpdateProgress = findViewById(R.id.title_update_progress);
+        mLocationClient = new LocationClient(getApplicationContext());
+
+        // 未来天气viewpager
+        fragments = new ArrayList<>();
+        fragments.add(new FirstWeatherFragment());
+        fragments.add(new SecondWeatherFragment());
+        mWeatherPagerAdapter = new WeatherPagerAdapter(getSupportFragmentManager(), fragments);
+        mViewPager = findViewById(R.id.viewpager);
+        mViewPager.setAdapter(mWeatherPagerAdapter);
+        ((CirclePageIndicator) findViewById(R.id.indicator))
+                .setViewPager(mViewPager);
+
+        mUpdateBtn = findViewById(R.id.title_update_btn);
+        mUpdateBtn.setOnClickListener(this);
+        mCitySelect = findViewById(R.id.title_city_manager);
+        mCitySelect.setOnClickListener(this);
+        mLocationBtn = findViewById(R.id.title_location);
+        mLocationBtn.setOnClickListener(this);
+
 
         city_name_Tv.setText("N/A");
         cityTv.setText("N/A");
@@ -87,6 +182,7 @@ public class MainActivity extends Activity implements View.OnClickListener {
         windTv.setText("N/A");
     }
 
+    // 根据TodayWeather更新天气
     void updateTodayWeather(TodayWeather todayWeather) {
         city_name_Tv.setText(todayWeather.getCity() + "天气");
         cityTv.setText(todayWeather.getCity());
@@ -99,8 +195,17 @@ public class MainActivity extends Activity implements View.OnClickListener {
         climateTv.setText(todayWeather.getType());
         windTv.setText("风力:" + todayWeather.getFengli());
         Toast.makeText(MainActivity.this, "更新成功！", Toast.LENGTH_SHORT).show();
+
+        // 更新未来天气
+        if (fragments.size() > 0) {
+            ((FirstWeatherFragment) mWeatherPagerAdapter.getItem(0))
+                    .updateWeather(todayWeather);
+            ((SecondWeatherFragment) mWeatherPagerAdapter.getItem(1))
+                    .updateWeather(todayWeather);
+        }
     }
 
+    // 根据city code更新天气
     private void queryWeatherCode(String cityCode) {
         final String address = "http://wthrcdn.etouch.cn/WeatherApi?citykey=" + cityCode;
         Log.d(TAG, address);
@@ -147,6 +252,7 @@ public class MainActivity extends Activity implements View.OnClickListener {
         }).start();
     }
 
+    // 转换天气XML 返回天气TodayWeather
     private TodayWeather parseXML(String xmlData) {
         TodayWeather tw = null;
         int fengxiangCount = 0;
@@ -190,29 +296,125 @@ public class MainActivity extends Activity implements View.OnClickListener {
                             } else if (xpp.getName().equals("quality")) {
                                 xpp.next();
                                 tw.setQuality(xpp.getText());
-                            } else if (xpp.getName().equals("fengxiang") && fengxiangCount == 0) {
+                            } else if (xpp.getName().equals("fengxiang")) {
                                 xpp.next();
-                                tw.setFengxiang(xpp.getText());
+                                switch (fengxiangCount) {
+                                    case 0:
+                                        tw.setFengxiang(xpp.getText());
+                                        break;
+                                    case 2:
+                                        tw.setFengxiang2(xpp.getText());
+                                        break;
+                                    case 4:
+                                        tw.setFengxiang3(xpp.getText());
+                                        break;
+                                    case 6:
+                                        tw.setFengxiang4(xpp.getText());
+                                        break;
+                                    case 8:
+                                        tw.setFengxiang5(xpp.getText());
+                                        break;
+                                }
                                 fengxiangCount++;
-                            } else if (xpp.getName().equals("fengli") && fengliCount == 0) {
+                            } else if (xpp.getName().equals("fengli")) {
                                 xpp.next();
-                                tw.setFengli(xpp.getText());
+                                switch (fengliCount) {
+                                    case 0:
+                                        tw.setFengli(xpp.getText());
+                                        break;
+                                    case 2:
+                                        tw.setFengli2(xpp.getText());
+                                        break;
+                                    case 4:
+                                        tw.setFengli3(xpp.getText());
+                                        break;
+                                    case 6:
+                                        tw.setFengli4(xpp.getText());
+                                        break;
+                                    case 8:
+                                        tw.setFengli5(xpp.getText());
+                                        break;
+                                }
                                 fengliCount++;
-                            } else if (xpp.getName().equals("date") && dateCount == 0) {
+                            } else if (xpp.getName().equals("date")) {
                                 xpp.next();
-                                tw.setDate(xpp.getText());
+                                switch (dateCount) {
+                                    case 0:
+                                        tw.setDate(xpp.getText());
+                                        break;
+                                    case 1:
+                                        tw.setDate2(xpp.getText().substring(xpp.getText().length() - 3));
+                                        break;
+                                    case 2:
+                                        tw.setDate3(xpp.getText().substring(xpp.getText().length() - 3));
+                                        break;
+                                    case 3:
+                                        tw.setDate4(xpp.getText().substring(xpp.getText().length() - 3));
+                                        break;
+                                    case 4:
+                                        tw.setDate5(xpp.getText().substring(xpp.getText().length() - 3));
+                                        break;
+                                }
                                 dateCount++;
-                            } else if (xpp.getName().equals("high") && highCount == 0) {
+                            } else if (xpp.getName().equals("high")) {
                                 xpp.next();
-                                tw.setHigh(xpp.getText().substring(2).trim());
+                                switch (highCount) {
+                                    case 0:
+                                        tw.setHigh(xpp.getText().substring(2).trim());
+                                        break;
+                                    case 1:
+                                        tw.setHigh2(xpp.getText().substring(2).trim());
+                                        break;
+                                    case 2:
+                                        tw.setHigh3(xpp.getText().substring(2).trim());
+                                        break;
+                                    case 3:
+                                        tw.setHigh4(xpp.getText().substring(2).trim());
+                                        break;
+                                    case 4:
+                                        tw.setHigh5(xpp.getText().substring(2).trim());
+                                        break;
+                                }
                                 highCount++;
-                            } else if (xpp.getName().equals("low") && lowCount == 0) {
+                            } else if (xpp.getName().equals("low")) {
                                 xpp.next();
-                                tw.setLow(xpp.getText().substring(2).trim());
+                                switch (lowCount) {
+                                    case 0:
+                                        tw.setLow(xpp.getText().substring(2).trim());
+                                        break;
+                                    case 1:
+                                        tw.setLow2(xpp.getText().substring(2).trim());
+                                        break;
+                                    case 2:
+                                        tw.setLow3(xpp.getText().substring(2).trim());
+                                        break;
+                                    case 3:
+                                        tw.setLow4(xpp.getText().substring(2).trim());
+                                        break;
+                                    case 4:
+                                        tw.setLow5(xpp.getText().substring(2).trim());
+                                        break;
+                                }
                                 lowCount++;
-                            } else if (xpp.getName().equals("type") && typeCount == 0) {
+                            } else if (xpp.getName().equals("type")) {
                                 xpp.next();
-                                tw.setType(xpp.getText());
+                                switch (typeCount) {
+                                    case 0:
+                                        tw.setType(xpp.getText());
+                                        break;
+                                    case 2:
+                                        tw.setWeather2(xpp.getText());
+                                        break;
+                                    case 4:
+                                        tw.setWeather3(xpp.getText());
+                                        break;
+                                    case 6:
+                                        tw.setWeather4(xpp.getText());
+                                        break;
+                                    case 8:
+                                        tw.setWeather5(xpp.getText());
+                                        break;
+                                }
                                 typeCount++;
                             }
                         }
@@ -232,13 +434,57 @@ public class MainActivity extends Activity implements View.OnClickListener {
         return tw;
     }
 
+    // 初始化LocationClient
+    private void initLocation() {
+        mLocationClient.registerLocationListener(new BDAbstractLocationListener() {
+            @Override
+            public void onReceiveLocation(BDLocation bdLocation) {
+                Log.d("location", "onReceiveLocation: ");
+                mUpdateBtn.setVisibility(View.VISIBLE);
+                mUpdateProgress.setVisibility(View.GONE);
+                //定位失败反馈
+//            if (location == null || TextUtils.isEmpty(location.getCity())) {
+//                // T.showShort(getApplicationContext(), "location = null");
+//                final Dialog dialog = IphoneDialog.getTwoBtnDialog(
+//                        MainActivity.this, "定位失败", "是否手动选择城市?");
+//                ((Button) dialog.findViewById(R.id.ok))
+//                        .setOnClickListener(new View.OnClickListener() {
+//
+//                            @Override
+//                            public void onClick(View v) {
+//                                startActivityForResult();
+//                                dialog.dismiss();
+//                            }
+//                        });
+//                dialog.show();
+//                return;
+//            }
+                String cityName = bdLocation.getCity();
+                mLocationClient.stop();
+                Message msg = mHandler.obtainMessage();
+                msg.what = LOACTION_OK;
+                msg.obj = cityName;
+                mHandler.sendMessage(msg);// 更新天气
+            }
+        });
+
+        LocationClientOption option = new LocationClientOption();
+        option.setLocationMode(LocationClientOption.LocationMode.Hight_Accuracy);
+        option.setCoorType("bd09ll");
+        option.setScanSpan(0);
+        option.setIsNeedAddress(true);
+        option.setOpenGps(true);
+        option.setLocationNotify(true);
+        option.setIsNeedLocationDescribe(true);
+        option.setIgnoreKillProcess(false);
+        mLocationClient.setLocOption(option);
+    }
+
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.layout);
 
-        mUpdateBtn = findViewById(R.id.title_update_btn);
-        mUpdateBtn.setOnClickListener(this);
 
         if (NetUtil.getNetworkState(this) != NetUtil.NETWORN_NONE) {
             Log.d(TAG, "网络ok");
@@ -248,32 +494,43 @@ public class MainActivity extends Activity implements View.OnClickListener {
             Toast.makeText(MainActivity.this, "网络挂了", Toast.LENGTH_LONG).show();
         }
 
-        mCitySelect = findViewById(R.id.title_city_manager);
-        mCitySelect.setOnClickListener(this);
-
         initView();
+        initLocation();
     }
 
     @Override
     public void onClick(View v) {
-        if (v.getId() == R.id.title_city_manager) {
-            Intent i = new Intent(this, SelectCity.class);
-            startActivityForResult(i, 1);
+        switch (v.getId()) {
+            case R.id.title_city_manager:
+                Intent i = new Intent(this, SelectCity.class);
+                startActivityForResult(i, 1);
+                break;
+            case R.id.title_update_btn:
+                SharedPreferences sp = getSharedPreferences("config", MODE_PRIVATE);
+                String cityCode = sp.getString("main_city_code", "101010100");
+                Log.d(TAG, cityCode);
+
+                if (NetUtil.getNetworkState(this) != NetUtil.NETWORN_NONE) {
+                    Log.d(TAG, "网络ok");
+                    queryWeatherCode(cityCode);
+                } else {
+                    Log.d(TAG, "网络挂了");
+                    Toast.makeText(MainActivity.this, "网络挂了", Toast.LENGTH_LONG).show();
+                }
+                break;
+            case R.id.title_location:
+                if (NetUtil.getNetworkState(this) != NetUtil.NETWORN_NONE) {
+                    if (!mLocationClient.isStarted())
+                        mLocationClient.start();
+                    mLocationClient.requestLocation();
+                    Toast.makeText(MainActivity.this, "正在定位...", Toast.LENGTH_LONG).show();
+                } else {
+//                    T.showShort(this, R.string.net_err);
+                    Toast.makeText(MainActivity.this, "网络错误", Toast.LENGTH_LONG).show();
+                }
+                break;
         }
 
-        if (v.getId() == R.id.title_update_btn) {
-            SharedPreferences sp = getSharedPreferences("config", MODE_PRIVATE);
-            String cityCode = sp.getString("main_city_code", "101010100");
-            Log.d(TAG, cityCode);
-
-            if (NetUtil.getNetworkState(this) != NetUtil.NETWORN_NONE) {
-                Log.d(TAG, "网络ok");
-                queryWeatherCode(cityCode);
-            } else {
-                Log.d(TAG, "网络挂了");
-                Toast.makeText(MainActivity.this, "网络挂了", Toast.LENGTH_LONG).show();
-            }
-        }
     }
 
     @Override
